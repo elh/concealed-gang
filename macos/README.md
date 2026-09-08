@@ -44,9 +44,11 @@ handles:
   delivery. We found public reports of WKWebView screen savers disappearing or
   halting after a few seconds without a published fix; this implementation sets
   `SSENeedsAnimationTimer` to `false`, owns a main-run-loop timer,
-  calls `window.mahjongScreenSaver.renderFrame(performance.now())` at 30 fps,
-  and the web app advances its manual React Three Fiber frame loop from that
-  event instead of relying on WebKit's own animation scheduling.
+  and calls `window.mahjongScreenSaver.renderFrame(performance.now())` at 30 fps.
+  The bridge dispatches `mahjong-screen-saver-frame`; React Three Fiber uses
+  `frameloop="never"` and calls `advance(timestampMs / 1000, true)`, converting
+  milliseconds to seconds instead of relying on WebKit's animation scheduling
+  ([PR #11](https://github.com/elh/mahjong-3d/pull/11)).
 - Do not make screen saver visibility or playback depend on CSS animation or
   transition completion events. An inactive `WKWebView` can stall its normal
   animation/compositor scheduling even while the native frame bridge continues
@@ -56,10 +58,15 @@ handles:
   elapsed-time state machine: the web surface samples it with
   `requestAnimationFrame`, while the screen saver samples it from
   `mahjong-screen-saver-frame` timestamps. Once a reveal reaches zero opacity,
-  the cover is removed from the DOM rather than left composited over the canvas.
+  the cover is removed from the DOM rather than left composited over the canvas
+  ([PR #17](https://github.com/elh/mahjong-3d/pull/17)).
 - On macOS 14 and newer, the extension sets `WKPreferences.inactiveSchedulingPolicy`
   to `.none` as a best-effort guard against WebKit suspending an attached screen
   saver web view.
+- Full-screen web playback ignores `document.hidden` and transient inactive
+  lifecycle signals because the host can report them while the renderer is
+  still visible. Previews respect those signals; native frame delivery stops
+  when the renderer detaches from its window.
 - The extension stays sandboxed and loads only bundled resources. Local
   app-extension testing showed WKWebView still needs the network-client
   entitlement for its WebKit networking process plumbing even when serving the
@@ -68,9 +75,9 @@ handles:
   Aerial minimal sample. There are no independent overlay windows, process-exit
   watchdogs, duplicate renderer ownership systems, or WebGL mirror fallbacks in
   this implementation.
-- The native bridge still writes `window.__mahjongScreenSaverNativeState` before
-  calling `setActive`, `setPreview`, or `renderFrame`, so React can bootstrap
-  from early native state.
+- Native code initializes `window.__mahjongScreenSaverNativeState` at document
+  start and updates it before `setActive` and `setPreview`, so React can bootstrap
+  from early native state. Frame calls only deliver timestamps.
 - Worker-backed round generation is disabled in `surface=screensaver`; the web
   app uses the local-file-safe no-worker fallback.
 - The container app is intentionally small. It only points users to Screen Saver
